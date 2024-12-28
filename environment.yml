@@ -1,0 +1,13 @@
+name: lrp_xai_env
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - ipykernel
+  - ipython
+  - matplotlib
+  - pip
+  - pytorch
+  - torchvision
+  - pip:
+      - notebook
