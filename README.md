@@ -1,7 +1,7 @@
 # MedIT - Explainable AI - Fge + Pru
 
 This repository demonstrates a flexible framework for **layer-wise relevance propagation** (LRP) suitable for 
-VGG- and ResNet-based (as well as any similar) image classification models. LRP is a method within the field of 
+VGG- and ResNet-based (as well as all similar) image classification models. LRP is a method within the field of 
 **explainable artificial intelligence** (XAI), that yields saliency maps highlighting important features in the input 
 image to indicate the underlying decision criteria.
 
