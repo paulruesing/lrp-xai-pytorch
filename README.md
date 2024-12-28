@@ -68,4 +68,4 @@ I acknowledge the inspiration drawn from
 
 
 ### 5.2. License
-The project is licensed under the MIT license. To view a copy of this license, see [LICENSE](https://github.com/LINK_HERE/main/LICENSE.txt).
+The project is licensed under the MIT license. To view a copy of this license, see [LICENSE](https://github.com/paulruesing/lrp-xai-pytorch?tab=MIT-1-ov-file).
