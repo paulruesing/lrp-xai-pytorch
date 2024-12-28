@@ -1,10 +1,8 @@
 from copy import deepcopy
-
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import os
-
 import torch
 from torch import nn
 import torchvision
@@ -17,6 +15,12 @@ DEBUG = False
 
 
 class LRPEngine:
+    """
+    Designed to facilitate Layer-wise Relevance Propagation (LRP) on PyTorch models.
+    It initializes with a model and input batch, processes the model's layers into a format suitable for LRP,
+    and computes relevance scores to interpret model predictions.
+    Additionally, the class supports visualization of relevance heatmaps.
+    """
     def __init__(self,
                  model: torch.nn.Module,
                  input_batch: torch.Tensor=None,
@@ -24,14 +28,24 @@ class LRPEngine:
                  classifier_spatial_dim=None
                  ):
         """
-        To be commented.
-        :param model:
-        :param input_batch: torch.Tensor, default=None:
-            input batch as 4D tensor (unsqueezed), can be provided later but is required for calculations.
-        :param plot_output_dir: string, default=None:
-            describes the output folder
-        :param classifier_spatial_dim: int, default=None:
-            spatial input dimension to classifier layers. if not provided will be inferred from last pooling layer.
+        Initializes the LRP Engine.
+
+        Parameters
+        ----------
+        model : torch.nn.Module
+            The PyTorch model to be used for relevance propagation.
+        input_batch : torch.Tensor, optional
+            A 4D tensor representing the input batch (default is None).
+        plot_output_dir : str, optional
+            Path to the directory where plots will be saved (default is None).
+        classifier_spatial_dim : int, optional
+            The spatial dimension of the classifier's input. If not provided, it will
+            be inferred from the last pooling layer in the model.
+
+        Raises
+        ------
+        AttributeError
+            If classifier_spatial_dim is not provided and cannot be inferred.
         """
         self.model = model
         self._input_batch = input_batch  # as property for distinct setter behavior
@@ -56,14 +70,33 @@ class LRPEngine:
 
     @property
     def input_batch(self):
-        """ Input data, must be a 4D (unsqueezed) tensor. """
+        """
+        Returns the input batch tensor.
+
+        Raises
+        ------
+        AttributeError
+            If input batch is not set.
+
+        Returns
+        -------
+        torch.Tensor
+            The 4D input batch tensor.
+        """
         if self._input_batch is None:
             raise AttributeError("Please provide input data (input_batch)!")
         return self._input_batch
 
     @input_batch.setter
     def input_batch(self, value):
-        """ Mutable but resets results. """
+        """
+        Sets the input batch tensor and resets results.
+
+        Parameters
+        ----------
+        value : torch.Tensor
+            The 4D input batch tensor.
+        """
         self._input_batch = value
         self._probabilities = None
         self._activations = None
@@ -71,6 +104,14 @@ class LRPEngine:
 
     @property
     def probabilities(self):
+        """
+        Computes or retrieves the classification probabilities.
+
+        Returns
+        -------
+        torch.Tensor
+            The softmax probabilities of the model's output.
+        """
         if self._probabilities is None:
             self._probabilities = torch.nn.functional.softmax(self.activations[-1].detach().view(-1), dim=0)
         return self._probabilities
@@ -78,9 +119,17 @@ class LRPEngine:
     @property
     def activations(self):
         """
-        If not already done, executes the prepared model and collects the activation tensors in a list.
-        :return:
-            a list of torch.Tensor objects containing the neuron activations
+        Computes or retrieves the activations of all layers.
+
+        Returns
+        -------
+        list of torch.Tensor
+            A list containing activation tensors for each layer.
+
+        Raises
+        ------
+        BaseException
+            If a layer's forward pass fails.
         """
         if self._activations is None:
             # initial activation is input batch
@@ -98,15 +147,28 @@ class LRPEngine:
     @property
     def layers(self):
         """
-        Executes auxiliary method that converts model into optimal ModuleList for LRP calculation.
-        :return: list of torch.nn.Module: list of layers
+        Retrieves or initializes the model layers for relevance propagation.
+
+        Returns
+        -------
+        list of torch.nn.Module
+            A list of layers suitable for LRP calculation.
         """
         if self._layers is None:
             self._load_model_lrp()
         return self._layers
 
     def print_results(self, categories, len_list=3):
-        # show top categories per image (torch.topk returns values and index)
+        """
+        Prints the top classification results.
+
+        Parameters
+        ----------
+        categories : list of str
+            A list of category names.
+        len_list : int, optional
+            Number of top categories to display (default is 3).
+        """
         top_probs, top_class_ids = torch.topk(self.probabilities, len_list)
         print("Classification results:")
         print("------------------------------------------------------------------------")
@@ -117,20 +179,34 @@ class LRPEngine:
 
     @property
     def relevance_scores(self):
+        """
+        Retrieves the relevance scores.
+
+        Raises
+        ------
+        BaseException
+            If relevance scores are not yet calculated.
+
+        Returns
+        -------
+        torch.Tensor
+            The calculated relevance scores.
+        """
         if self._relevance_scores is None:
             raise BaseException("Relevance scores need to be calculated through calculate_relevance_scores_resnet() or calculate_relevance_scores_vgg() first!")
         return self._relevance_scores
 
     def calculate_relevance_scores(self, rel_filter_ratio : float = 1.0, **lrp_kwargs):
         """
-        This method calculates relevance propagation scores utilising multiple LRP rules from the LRPModel class.
+        Calculates relevance propagation scores.
 
-        :param rel_filter_ratio: float, default 1.0:
-            if <1.0 a relevance filter is used, that only lets the highest rel_filter_ratio*100 % LRP values propagate
-            through each calculation step. Should yield more expressive outputs if used!
-        :param lrp_kwargs:
-            kwargs_dict for LRPModel initialisation
-        :return:
+        Parameters
+        ----------
+        rel_filter_ratio : float, optional
+            A value <1.0 applies a relevance filter that retains only the highest
+            rel_filter_ratio*100% of LRP values in each step (default is 1.0).
+        **lrp_kwargs : dict, optional
+            Additional arguments for LRPModel initialization.
         """
         lrp_model = LRPModel(module_list=self.layers, rel_pass_ratio=rel_filter_ratio, **lrp_kwargs)
         print('Initialised LRP model. Now calculating relevance...')
@@ -140,12 +216,19 @@ class LRPEngine:
     @staticmethod
     def unpack_layer_container(container, list_of_layers: nn.ModuleList = None):
         """
-        Recursive method to unpack layer containers (suitable for ResNet and VGG backbone).
+        Recursively unpacks container modules into a list of layers.
 
-        :param container: model or sequential container to unpack
-        :param list_of_layers: list of layers to append layers to (then not returning anything), for recursive calling
+        Parameters
+        ----------
+        container : torch.nn.Module
+            The model or sequential container to unpack.
+        list_of_layers : nn.ModuleList, optional
+            A list to append the unpacked layers (default is None).
 
-        :return: list_of_layers if such was not provided as an argument
+        Returns
+        -------
+        nn.ModuleList
+            The unpacked list of layers if no list is provided.
         """
         # initialise list if initial call and set inplace to False, meaning return something:
         if list_of_layers is None:
@@ -175,8 +258,8 @@ class LRPEngine:
 
     def _load_model_lrp(self):
         """
-        This method converts an PyTorch model implementation into an ideal ModuleList suitable for LRP calculation.
-        Specifically, it converts linear layers into equivalent convolutional ones to facilitate relevance propagation.
+        Converts the PyTorch model into an LRP-suitable ModuleList.
+        Linear layers are converted into equivalent convolutional layers.
         """
         # unpack all containers into a list of layers:
         layer_list = self.unpack_layer_container(self.model)
@@ -209,16 +292,18 @@ class LRPEngine:
 
     def plot_relevance_scores(self, layer_index=0, plt_cmap="afmhot", input_reference=None, hidden=False) -> None:
         """
-        Plots layer-wise relevance propagation score heatmap next to original image.
-        LRP scores get min-max scaled, meaning the lowest values become 0 the highest 1.
-        Colormap can be changed with plt_cmap parameter, default is "afmhot".
+        Plots the relevance propagation score heatmap.
 
-        This method's is inspired by https://github.com/kaifishr/PyTorchRelevancePropagation
-
-        :param layer_index: int, default=0:
-            index of layer to plot relevance scores for.
-        :param plt_cmap: string, default="afmhot"
-            matplotlib color map to use for LRP heatmap
+        Parameters
+        ----------
+        layer_index : int, optional
+            The index of the layer to plot relevance scores for (default is 0).
+        plt_cmap : str, optional
+            The matplotlib colormap for the heatmap (default is "afmhot").
+        input_reference : str, optional
+            A reference string for the input (default is None).
+        hidden : bool, optional
+            If True, the plot will not be displayed (default is False).
         """
         # read out classification for titling:
         top_probs, top_class_ids = torch.topk(self.probabilities, k=1)
@@ -275,16 +360,23 @@ class LRPEngine:
     ############################# Auxiliary Static Methods #############################
     @staticmethod
     def _convert_linear_to_conv(linear_layer, in_channels=512, spatial_dim=7):
-        '''
+        """
         Converts a linear layer to an equivalent convolutional layer.
 
-        :param linear_layer: The linear layer to be converted
-        :param in_channels: Number of input channels to the original convolutional feature map
-        :param spatial_dim: Spatial dimensions of the input feature map (assumed square)
+        Parameters
+        ----------
+        linear_layer : torch.nn.Linear
+            The linear layer to be converted.
+        in_channels : int, optional
+            Number of input channels to the original convolutional feature map (default is 512).
+        spatial_dim : int, optional
+            Spatial dimensions of the input feature map (assumed square, default is 7).
 
-        :return: An equivalent convolutional layer
-        '''
-
+        Returns
+        -------
+        torch.nn.Conv2d
+            An equivalent convolutional layer.
+        """
         # Calculate kernel size to match the spatial dimensions
         kernel_size = spatial_dim  # This should be 7 in this case
 
@@ -312,14 +404,26 @@ class LRPEngine:
 
 
 ############################# LRP Model Class #############################
-# The code in this section is an amended but based on
+# The code in this section is amended but based on
 # https://github.com/keio-smilab24/LRP-for-ResNet/tree/main?tab=License-1-ov-file#readme.
 class LRPModel(nn.Module):
     """
-    Class wraps PyTorch model to perform layer-wise relevance propagation.
-    Capable of residual networks!
+    Wraps a PyTorch model to perform Layer-wise Relevance Propagation (LRP).
+    Supports handling models with residual connections.
     """
     def __init__(self, module_list: torch.nn.ModuleList, rel_pass_ratio: float = 0.0, skip_connection_prop="latest") -> None:
+        """
+        Initializes the LRPModel.
+
+        Parameters
+        ----------
+        module_list : torch.nn.ModuleList
+            The list of layers from the model to perform LRP on.
+        rel_pass_ratio : float, optional
+            Ratio of relevance passed to the next layer. Default is 0.0.
+        skip_connection_prop : str, optional
+            Determines how to handle skip connections. Default is "latest".
+        """
         super().__init__()
         self.layers = module_list
         self.rel_pass_ratio = rel_pass_ratio
@@ -331,10 +435,17 @@ class LRPModel(nn.Module):
 
     def _create_lrp_model(self) -> torch.nn.ModuleList:
         """
-        Method builds the model for layer-wise relevance propagation.
+        Constructs the LRP-specific model layers.
 
-        Returns:
-            LRP-model as module list.
+        Returns
+        -------
+        torch.nn.ModuleList
+            A module list of LRP layers.
+
+        Raises
+        ------
+        NotImplementedError
+            If a layer's LRP implementation is not found in the lookup table.
         """
         # Clone layers from original model. This is necessary as we might modify the weights.
         layers = deepcopy(self.layers)
@@ -355,19 +466,39 @@ class LRPModel(nn.Module):
 
     @property
     def relevance_scores(self):
+        """
+        Retrieves the calculated relevance scores.
+
+        Returns
+        -------
+        list of torch.Tensor
+            A list of tensors representing relevance scores for each layer.
+
+        Raises
+        ------
+        RuntimeError
+            If relevance scores have not been calculated yet.
+        """
         if self._relevance_scores is None:
             raise RuntimeError("Relevance scores first need to be calculated through forward(input)")
         return self._relevance_scores
 
     def forward(self, x: torch.tensor, topk=-1) -> torch.tensor:
         """
-        Forward method that first performs standard inference followed by layer-wise relevance propagation.
+        Performs forward pass and calculates relevance propagation.
 
-        Args:
-            x: Input tensor representing an image / images (N, C, H, W).
+        Parameters
+        ----------
+        x : torch.tensor
+            Input tensor, typically representing images of shape (N, C, H, W).
+        topk : int, optional
+            Number of top output probabilities to consider for LRP calculation.
+            Default is -1 (consider all).
 
-        Returns:
-            Tensor holding relevance scores with dimensions (N, 1, H, W).
+        Returns
+        -------
+        torch.tensor
+            Relevance scores tensor of shape (N, 1, H, W).
         """
         activations = list()
         relevance_list = list()
